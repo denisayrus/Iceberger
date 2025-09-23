@@ -36,7 +36,7 @@ static inline T clampVal(const T& v, const T& lo, const T& hi) {
 }
 
 
-// Нормализация угла в диапазон [-PI, PI]
+// Нормализация угла в диапазоне [-PI, PI]
 static inline double wrapAngle(double a) {
     while (a > PI) a -= 2.0 * PI;
     while (a < -PI) a += 2.0 * PI;
@@ -122,7 +122,7 @@ static void ensureCCW(std::vector<Vec2>& pts) {
     if (signedArea(pts) < 0) std::reverse(pts.begin(), pts.end());
 }
 
-// Отсечение айсберга ниже заданного уровня Y
+// Вычисление погруженной части айсберга
 static std::vector<Vec2> clipBelowY(const std::vector<Vec2>& verts, double yLevel) {
     std::vector<Vec2> out;
     size_t n = verts.size();
@@ -208,7 +208,7 @@ static PolyProps calcPolyProps(const std::vector<Vec2>& pts, const World& world)
     return r;
 }
 
-// Поворот точек айсберга на заданный угол
+// Поворот айсберга
 static std::vector<Vec2> rotatedPoints(const PolyProps& poly, double angle) {
     double c = std::cos(angle), s = std::sin(angle);
     std::vector<Vec2> out; out.reserve(poly.points_ccw.size());
@@ -221,7 +221,7 @@ static std::vector<Vec2> rotatedPoints(const PolyProps& poly, double angle) {
     return out;
 }
 
-// Преобразование вершин айсберга
+// Преобразование координат
 static std::vector<Vec2> transformedVertices(const PolyProps& poly, const State& st) {
     std::vector<Vec2> rp = rotatedPoints(poly, st.angle);
     for (size_t i = 0; i < rp.size(); ++i) {
@@ -303,7 +303,6 @@ static bool isNearEquilibrium(const State& st, double targetAngle, double thresh
         std::abs(st.vy) < 0.005;
 }
 
-// Обработка сил от границ мира
 static Vec2 handleBoundaryForces(const State& st, const World& world, const PolyProps& poly) {
     Vec2 boundaryForce(0.0, 0.0);
 
