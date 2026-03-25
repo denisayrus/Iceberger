@@ -1,3 +1,0 @@
-﻿  IcebergSimulation.cpp
-C:\Users\пользователь\Desktop\вычмат лаба\IcebergSimulation\IcebergSimulation.cpp(543,57): warning C4566: символ, представленный универсальным именем символа "\u00B2", невозможно представить в текущей кодовой странице (1251)
-  IcebergSimulation.vcxproj -> C:\Users\пользователь\Desktop\вычмат лаба\IcebergSimulation\x64\Debug\IcebergSimulation.exe
