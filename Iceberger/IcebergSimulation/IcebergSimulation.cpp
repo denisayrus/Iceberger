@@ -17,17 +17,17 @@
 static const double PI = 3.14159265358979323846;
 
 // ----- параметры физики -----
-static const double GRAVITY_MULTIPLIER = 3.0;   // Множитель ускорения свободного падения
-static const double DAMP_X = 20.0;              // Коэффициент демпфирования по горизонтали
-static const double DAMP_Y = 30.0;              // Коэффициент демпфирования по вертикали
-static const double DAMP_ANG = 60.0;            // Коэффициент демпфирования вращения
-static const double MULT_DAMP_STEP = 0.98;      // Множитель дополнительного затухания на каждом шаге
-static const double SINK_ACCEL = 2.0;           // Ускорение при погружении
+static const double GRAVITY_MULTIPLIER = 3.0; // Множитель ускорения свободного падения
+static const double DAMP_X = 20.0;  // Коэффициент демпфирования по горизонтали
+static const double DAMP_Y = 30.0; // Коэффициент демпфирования по вертикали
+static const double DAMP_ANG = 60.0; // Коэффициент демпфирования вращения
+static const double MULT_DAMP_STEP = 0.98; // Множитель дополнительного затухания на каждом шаге
+static const double SINK_ACCEL = 2.0; // Ускорение при погружении
 static const double IMPACT_VEL_THRESHOLD = 1.0; // Порог скорости для удара о воду
-static const double IMPACT_FACTOR = 0.8;        // Сила дополнительного удара
-static const double MAX_LIN_SPEED = 10.0;       // Максимальная линейная скорость
-static const double MAX_ANG_SPEED = 5.0;        // Максимальная угловая скорость
-static const double EQUILIBRIUM_VEL = 0.02;     // Скорость, ниже которой считаем равновесие
+static const double IMPACT_FACTOR = 0.8; // Сила дополнительного удара
+static const double MAX_LIN_SPEED = 10.0; // Максимальная линейная скорость
+static const double MAX_ANG_SPEED = 5.0; // Максимальная угловая скорость
+static const double EQUILIBRIUM_VEL = 0.02; // Скорость, ниже которой считаем равновесие
 static const double EQUILIBRIUM_ANGVEL = 0.005; // Угловая скорость, ниже которой считаем равновесие
 
 // ----- вспомогательные типы -----
@@ -48,10 +48,10 @@ struct World {
 
 // Свойства айсберга
 struct PolyProps {
-    double area = 0;            // площадь
-    Vec2 center;                // центр масс
-    double I = 1.0;             // момент инерции относительно центра масс
-    double mass = 1.0;          // масса
+    double area = 0; // площадь
+    Vec2 center; // центр масс
+    double I = 1.0; // момент инерции относительно центра масс
+    double mass = 1.0; // масса
     std::vector<Vec2> points_ccw; // вершины в порядке против часовой стрелки
 };
 
@@ -222,44 +222,49 @@ static std::pair<Vec2, double> forcesAndTorque(const PolyProps& poly, const Worl
 }
 
 // Вычисление производных состояния скорости и ускорения
-static void derivatives(const PolyProps& poly, const World& w, const State& st, double elapsedTime, Vec2& dPos, Vec2& dVel, double& dAng, double& dAngVel) {
+static void derivatives(const PolyProps& poly, const World& w, const State& st, double elapsedTime, double* dydt) {
     auto FT = forcesAndTorque(poly, w, st, elapsedTime);
     Vec2 F = FT.first; double M = FT.second;
-    dPos = Vec2(st.vx, st.vy);               // производная позиции скорость
-    dVel = Vec2(F.x / poly.mass, F.y / poly.mass); // производная скорости ускорение
-    dAng = st.angVel;                       // производная угла угловая скорость
-    dAngVel = M / poly.I;                   // производная угловой скорости угловое ускорение
+    dydt[0] = st.vx; // производная позиции по x скорость vx
+    dydt[1] = st.vy; // производная позиции по y скорость vy
+    dydt[2] = F.x / poly.mass; // производная скорости по x ускорение ax
+    dydt[3] = F.y / poly.mass; // производная скорости по y ускорение ay
+    dydt[4] = st.angVel; // производная угла угловая скорость
+    dydt[5] = M / poly.I; // производная угловой скорости угловое ускорение
 }
 
-// ----- методы интегрирования -----
+// ----- общий шаг интегрирования по таблице -----
+static void integrateStep(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime,
+    const double* c, const double* const* a, const double* b, int stages) {
+    double y0[6] = { st.x, st.y, st.vx, st.vy, st.angle, st.angVel };
+    std::vector<std::vector<double>> k(stages, std::vector<double>(6, 0.0));
+    double ytmp[6];
 
-// RK4
-static void rk4Step(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime) {
-    Vec2 k1p, k1v, k2p, k2v, k3p, k3v, k4p, k4v;
-    double k1a, k1av, k2a, k2av, k3a, k3av, k4a, k4av;
-    derivatives(poly, w, st, elapsedTime, k1p, k1v, k1a, k1av);
-    State s2 = st;
-    s2.x += 0.5 * dt * k1p.x; s2.y += 0.5 * dt * k1p.y;
-    s2.vx += 0.5 * dt * k1v.x; s2.vy += 0.5 * dt * k1v.y;
-    s2.angle += 0.5 * dt * k1a; s2.angVel += 0.5 * dt * k1av;
-    derivatives(poly, w, s2, elapsedTime + 0.5 * dt, k2p, k2v, k2a, k2av);
-    State s3 = st;
-    s3.x += 0.5 * dt * k2p.x; s3.y += 0.5 * dt * k2p.y;
-    s3.vx += 0.5 * dt * k2v.x; s3.vy += 0.5 * dt * k2v.y;
-    s3.angle += 0.5 * dt * k2a; s3.angVel += 0.5 * dt * k2av;
-    derivatives(poly, w, s3, elapsedTime + 0.5 * dt, k3p, k3v, k3a, k3av);
-    State s4 = st;
-    s4.x += dt * k3p.x; s4.y += dt * k3p.y;
-    s4.vx += dt * k3v.x; s4.vy += dt * k3v.y;
-    s4.angle += dt * k3a; s4.angVel += dt * k3av;
-    derivatives(poly, w, s4, elapsedTime + dt, k4p, k4v, k4a, k4av);
+    for (int i = 0; i < stages; ++i) {
+        for (int comp = 0; comp < 6; ++comp) ytmp[comp] = y0[comp];
+        for (int j = 0; j < i; ++j) {
+            double factor = dt * a[i][j];
+            for (int comp = 0; comp < 6; ++comp)
+                ytmp[comp] += factor * k[j][comp];
+        }
+        State tmpState;
+        tmpState.x = ytmp[0]; tmpState.y = ytmp[1];
+        tmpState.vx = ytmp[2]; tmpState.vy = ytmp[3];
+        tmpState.angle = ytmp[4]; tmpState.angVel = ytmp[5];
+        derivatives(poly, w, tmpState, elapsedTime + c[i] * dt, k[i].data());
+    }
 
-    st.x += (dt / 6.0) * (k1p.x + 2 * k2p.x + 2 * k3p.x + k4p.x);
-    st.y += (dt / 6.0) * (k1p.y + 2 * k2p.y + 2 * k3p.y + k4p.y);
-    st.vx += (dt / 6.0) * (k1v.x + 2 * k2v.x + 2 * k3v.x + k4v.x);
-    st.vy += (dt / 6.0) * (k1v.y + 2 * k2v.y + 2 * k3v.y + k4v.y);
-    st.angle += (dt / 6.0) * (k1a + 2 * k2a + 2 * k3a + k4a);
-    st.angVel += (dt / 6.0) * (k1av + 2 * k2av + 2 * k3av + k4av);
+    double newState[6];
+    for (int comp = 0; comp < 6; ++comp) newState[comp] = y0[comp];
+    for (int i = 0; i < stages; ++i) {
+        double factor = dt * b[i];
+        for (int comp = 0; comp < 6; ++comp)
+            newState[comp] += factor * k[i][comp];
+    }
+
+    st.x = newState[0]; st.y = newState[1];
+    st.vx = newState[2]; st.vy = newState[3];
+    st.angle = newState[4]; st.angVel = newState[5];
 
     // Дополнительное затухание и ограничения скорости
     st.vx *= MULT_DAMP_STEP;
@@ -271,91 +276,53 @@ static void rk4Step(const PolyProps& poly, const World& w, State& st, double dt,
     if (std::abs(st.angVel) > MAX_ANG_SPEED) st.angVel = (st.angVel > 0 ? MAX_ANG_SPEED : -MAX_ANG_SPEED);
 }
 
+// ----- методы интегрирования -----
+
+// RK4
+static const double RK4_C[] = { 0.0, 0.5, 0.5, 1.0 };
+static const double RK4_A[4][4] = {
+    {0,0,0,0},
+    {0.5,0,0,0},
+    {0,0.5,0,0},
+    {0,0,1.0,0}
+};
+static const double* RK4_A_PTRS[4] = { RK4_A[0], RK4_A[1], RK4_A[2], RK4_A[3] };
+static const double RK4_B[] = { 1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0 };
+static const int RK4_STAGES = 4;
+
 // RK6
-static void rk6Step(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime) {
-    const int s = 7;
-    double c[s] = { 0, 1.0 / 3.0, 2.0 / 5.0, 1.0, 2.0 / 3.0, 4.0 / 5.0, 1.0 };
-    double a[s][s] = { {0} };
-    a[1][0] = 1.0 / 3.0;
-    a[2][0] = 4.0 / 25.0; a[2][1] = 6.0 / 25.0;
-    a[3][0] = 1.0 / 4.0;  a[3][1] = -3.0;    a[3][2] = 4.0;
-    a[4][0] = 6.0 / 81.0; a[4][1] = 90.0 / 81.0; a[4][2] = -50.0 / 81.0; a[4][3] = 8.0 / 81.0;
-    a[5][0] = 6.0 / 75.0; a[5][1] = 36.0 / 75.0; a[5][2] = 10.0 / 75.0; a[5][3] = 8.0 / 75.0; a[5][4] = 0;
-    a[6][0] = 1.0 / 20.0; a[6][1] = 0;         a[6][2] = 49.0 / 180.0; a[6][3] = 25.0 / 16.0; a[6][4] = 0; a[6][5] = 1.0 / 20.0;
-
-    double b[s] = { 11.0 / 120.0, 0, 27.0 / 40.0, 27.0 / 40.0, 0, 4.0 / 15.0, 4.0 / 15.0 };
-    double sum_b = 0;
-    for (int i = 0; i < s; ++i) sum_b += b[i];
-    double norm = 1.0 / sum_b;
-    for (int i = 0; i < s; ++i) b[i] *= norm;
-
-    Vec2 kp[s], kv[s];
-    double ka[s], kav[s];
-    State tmp;
-    for (int i = 0; i < s; ++i) {
-        if (i == 0) {
-            derivatives(poly, w, st, elapsedTime + c[i] * dt, kp[i], kv[i], ka[i], kav[i]);
-        }
-        else {
-            tmp = st;
-            for (int j = 0; j < i; ++j) {
-                tmp.x += dt * a[i][j] * kp[j].x;
-                tmp.y += dt * a[i][j] * kp[j].y;
-                tmp.vx += dt * a[i][j] * kv[j].x;
-                tmp.vy += dt * a[i][j] * kv[j].y;
-                tmp.angle += dt * a[i][j] * ka[j];
-                tmp.angVel += dt * a[i][j] * kav[j];
-            }
-            derivatives(poly, w, tmp, elapsedTime + c[i] * dt, kp[i], kv[i], ka[i], kav[i]);
-        }
-    }
-
-    st.x += dt * (kp[0].x * b[0] + kp[1].x * b[1] + kp[2].x * b[2] + kp[3].x * b[3] + kp[4].x * b[4] + kp[5].x * b[5] + kp[6].x * b[6]);
-    st.y += dt * (kp[0].y * b[0] + kp[1].y * b[1] + kp[2].y * b[2] + kp[3].y * b[3] + kp[4].y * b[4] + kp[5].y * b[5] + kp[6].y * b[6]);
-    st.vx += dt * (kv[0].x * b[0] + kv[1].x * b[1] + kv[2].x * b[2] + kv[3].x * b[3] + kv[4].x * b[4] + kv[5].x * b[5] + kv[6].x * b[6]);
-    st.vy += dt * (kv[0].y * b[0] + kv[1].y * b[1] + kv[2].y * b[2] + kv[3].y * b[3] + kv[4].y * b[4] + kv[5].y * b[5] + kv[6].y * b[6]);
-    st.angle += dt * (ka[0] * b[0] + ka[1] * b[1] + ka[2] * b[2] + ka[3] * b[3] + ka[4] * b[4] + ka[5] * b[5] + ka[6] * b[6]);
-    st.angVel += dt * (kav[0] * b[0] + kav[1] * b[1] + kav[2] * b[2] + kav[3] * b[3] + kav[4] * b[4] + kav[5] * b[5] + kav[6] * b[6]);
-
-    st.vx *= MULT_DAMP_STEP;
-    st.vy *= MULT_DAMP_STEP;
-    st.angVel *= MULT_DAMP_STEP;
-
-    double sp = std::hypot(st.vx, st.vy);
-    if (sp > MAX_LIN_SPEED) { double f = MAX_LIN_SPEED / sp; st.vx *= f; st.vy *= f; }
-    if (std::abs(st.angVel) > MAX_ANG_SPEED) st.angVel = (st.angVel > 0 ? MAX_ANG_SPEED : -MAX_ANG_SPEED);
-}
+static const double Q = std::sqrt(21.0);
+static const double RK6_C[] = { 0.0, 1.0, 0.5, 2.0 / 3.0, (7.0 - Q) / 14.0, (7.0 + Q) / 14.0, 1.0 };
+static const double RK6_A[7][7] = {
+    {0,0,0,0,0,0,0},
+    {1.0,0,0,0,0,0,0},
+    {3.0 / 8.0, 1.0 / 8.0, 0,0,0,0,0},
+    {8.0 / 27.0, 2.0 / 27.0, 8.0 / 27.0, 0,0,0,0},
+    {(-21.0 + 9.0 * Q) / 392.0, (-56.0 + 8.0 * Q) / 392.0, (336.0 - 48.0 * Q) / 392.0, (-63.0 + 3.0 * Q) / 392.0, 0,0,0},
+    {(-1155.0 - 255.0 * Q) / 1960.0, (-280.0 - 40.0 * Q) / 1960.0, (0.0 - 320.0 * Q) / 1960.0, (63.0 + 363.0 * Q) / 1960.0, (2352.0 + 392.0 * Q) / 1960.0, 0,0},
+    {(330.0 + 105.0 * Q) / 180.0, (120.0 + 0.0 * Q) / 180.0, (-200.0 + 280.0 * Q) / 180.0, (126.0 - 189.0 * Q) / 180.0, (-686.0 - 126.0 * Q) / 180.0, (490.0 - 70.0 * Q) / 180.0, 0}
+};
+static const double* RK6_A_PTRS[7] = { RK6_A[0], RK6_A[1], RK6_A[2], RK6_A[3], RK6_A[4], RK6_A[5], RK6_A[6] };
+static const double RK6_B[] = { 1.0 / 20.0, 0.0, 16.0 / 45.0, 0.0, 49.0 / 180.0, 49.0 / 180.0, 1.0 / 20.0 };
+static const int RK6_STAGES = 7;
 
 // Метод Ралстона
+static const double RALSTON_C[] = { 0.0, 2.0 / 3.0 };
+static const double RALSTON_A[2][2] = { {0,0}, {2.0 / 3.0, 0} };
+static const double* RALSTON_A_PTRS[2] = { RALSTON_A[0], RALSTON_A[1] };
+static const double RALSTON_B[] = { 1.0 / 4.0, 3.0 / 4.0 };
+static const int RALSTON_STAGES = 2;
+
+static void rk4Step(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime) {
+    integrateStep(poly, w, st, dt, elapsedTime, RK4_C, RK4_A_PTRS, RK4_B, RK4_STAGES);
+}
+
+static void rk6Step(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime) {
+    integrateStep(poly, w, st, dt, elapsedTime, RK6_C, RK6_A_PTRS, RK6_B, RK6_STAGES);
+}
+
 static void ralstonStep(const PolyProps& poly, const World& w, State& st, double dt, double elapsedTime) {
-    Vec2 k1p, k1v; double k1a, k1av;
-    derivatives(poly, w, st, elapsedTime, k1p, k1v, k1a, k1av);
-
-    State s2 = st;
-    s2.x += (2.0 / 3.0) * dt * k1p.x;
-    s2.y += (2.0 / 3.0) * dt * k1p.y;
-    s2.vx += (2.0 / 3.0) * dt * k1v.x;
-    s2.vy += (2.0 / 3.0) * dt * k1v.y;
-    s2.angle += (2.0 / 3.0) * dt * k1a;
-    s2.angVel += (2.0 / 3.0) * dt * k1av;
-
-    Vec2 k2p, k2v; double k2a, k2av;
-    derivatives(poly, w, s2, elapsedTime + (2.0 / 3.0) * dt, k2p, k2v, k2a, k2av);
-
-    st.x += dt * (0.25 * k1p.x + 0.75 * k2p.x);
-    st.y += dt * (0.25 * k1p.y + 0.75 * k2p.y);
-    st.vx += dt * (0.25 * k1v.x + 0.75 * k2v.x);
-    st.vy += dt * (0.25 * k1v.y + 0.75 * k2v.y);
-    st.angle += dt * (0.25 * k1a + 0.75 * k2a);
-    st.angVel += dt * (0.25 * k1av + 0.75 * k2av);
-
-    st.vx *= MULT_DAMP_STEP;
-    st.vy *= MULT_DAMP_STEP;
-    st.angVel *= MULT_DAMP_STEP;
-
-    double sp = std::hypot(st.vx, st.vy);
-    if (sp > MAX_LIN_SPEED) { double f = MAX_LIN_SPEED / sp; st.vx *= f; st.vy *= f; }
-    if (std::abs(st.angVel) > MAX_ANG_SPEED) st.angVel = (st.angVel > 0 ? MAX_ANG_SPEED : -MAX_ANG_SPEED);
+    integrateStep(poly, w, st, dt, elapsedTime, RALSTON_C, RALSTON_A_PTRS, RALSTON_B, RALSTON_STAGES);
 }
 
 // ----- преобразование координат для отрисовки -----
@@ -393,9 +360,29 @@ static Vec2 computeDrawingCenter(const std::vector<Vec2>& points) {
 
 // ----- главная функция -----
 int main() {
+    double dt = 1.0 / 60.0;
+    int step_output = 100;
+
+    std::cout << "Введите шаг интегрирования dt (по умолчанию " << dt << "): ";
+    std::string input;
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        double new_dt = std::stod(input);
+        if (new_dt > 0.0) dt = new_dt;
+    }
+
+    std::cout << "Введите шаг вывода данных в консоль (по умолчанию " << step_output << "): ";
+    std::getline(std::cin, input);
+    if (!input.empty()) {
+        int new_step = std::stoi(input);
+        if (new_step > 0) step_output = new_step;
+    }
+
+    std::cout << "Используется dt = " << dt << ", вывод каждые " << step_output << " шагов\n";
+
     World world;
     Mapper mapper(world, 1200, 800);
-    sf::RenderWindow window(sf::VideoMode(mapper.W, mapper.H), "Iceberg Simulation (RK6)");
+    sf::RenderWindow window(sf::VideoMode(mapper.W, mapper.H), "Iceberg Simulation ");
     window.setFramerateLimit(60);
 
     std::vector<Vec2> drawn;            // вершины, нарисованные пользователем
@@ -406,7 +393,6 @@ int main() {
     State st, prevSt;                   // текущее состояние и предыдущее
     double simTime = 0.0;               // время симуляции
     double accumulator = 0.0;           // накопитель времени для фиксированного шага
-    const double dt = 1.0 / 60.0;       // шаг интегрирования
     std::mt19937 rng(123456);            // генератор случайных чисел
     std::uniform_real_distribution<double> rndAng(-0.02, 0.02); // начальный разброс угла
 
@@ -511,7 +497,7 @@ int main() {
                 double perc_angle_ral = (ref_angle > 1e-6) ? (delta_angle_ral / ref_angle) * 100.0 : delta_angle_ral;
 
                 step_counter++;
-                if (step_counter % 100 == 0) {
+                if (step_counter % step_output == 0) {
                     std::cout << step_counter << "\t"
                         << simTime << "\t"
                         << perc_pos_rk4 << "\t\t"
